@@ -4,20 +4,39 @@ Observability service for the swarm. Consumes events from NATS JetStream, normal
 
 ## Architecture
 
-```
-NATS JetStream          Chronicle                    Supabase
-┌──────────────┐    ┌──────────────────┐    ┌─────────────────────┐
-│ TASK_EVENTS  │───▶│ Ingester         │    │ swarm_events        │
-│ SYSTEM_EVENTS│───▶│   ↓              │    │ swarm_traces        │
-│ DLQ          │───▶│ Normalizer       │    │ agent_metrics       │
-└──────────────┘    │   ↓              │    └─────────────────────┘
-                    │ Batcher (5s/100) │───▶  batch COPY
-                    │   ↓              │
-                    │ Trace Processor  │───▶  upsert traces
-                    │ Metrics Processor│───▶  upsert metrics
-                    │                  │
-                    │ HTTP API (:8700) │◀──  dashboard queries
-                    └──────────────────┘
+```mermaid
+graph LR
+    subgraph NATS JetStream
+        TE[TASK_EVENTS]
+        SE[SYSTEM_EVENTS]
+        DLQ[DLQ]
+    end
+
+    subgraph Chronicle
+        ING[Ingester]
+        NORM[Normalizer]
+        BAT[Batcher<br/>5s / 100 events]
+        TP[Trace Processor]
+        MP[Metrics Processor]
+        API[HTTP API :8700]
+    end
+
+    subgraph Supabase
+        EVT[(swarm_events)]
+        TRC[(swarm_traces)]
+        MET[(agent_metrics)]
+    end
+
+    TE --> ING
+    SE --> ING
+    DLQ --> ING
+    ING --> NORM --> BAT
+    BAT -- batch COPY --> EVT
+    BAT --> TP -- upsert --> TRC
+    BAT --> MP -- upsert --> MET
+    API -. query .-> EVT
+    API -. query .-> TRC
+    API -. query .-> MET
 ```
 
 ## Quick Start
@@ -83,6 +102,20 @@ Every event on `swarm.>` must conform to:
 
 Chronicle fills defaults for missing `event_id` (generates UUID), `timestamp` (uses ingestion time), and `metadata` (empty object). `trace_id` is required.
 
+### Trace Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending : task.created
+    pending --> assigned : task.assigned
+    assigned --> in_progress : task.started
+    in_progress --> completed : task.completed
+    in_progress --> failed : task.failed
+    in_progress --> timed_out : task.timeout
+    assigned --> timed_out : task.timeout
+    pending --> timed_out : task.timeout
+```
+
 ## NATS Subscriptions
 
 | Stream | Subjects | Events |
@@ -95,7 +128,46 @@ Durable consumer `chronicle-{STREAM}` with explicit ack, max 3 redeliveries.
 
 ## Database Schema
 
-Three tables in Supabase:
+```mermaid
+erDiagram
+    swarm_events {
+        uuid event_id PK
+        text trace_id
+        text source
+        text event_type
+        timestamptz timestamp
+        jsonb metadata
+        timestamptz created_at
+    }
+
+    swarm_traces {
+        text trace_id PK
+        text task_title
+        text owner
+        text status
+        text assigned_agent
+        timestamptz started_at
+        timestamptz completed_at
+        bigint duration_ms
+        bigint time_to_pickup_ms
+        int span_count
+        text error
+        jsonb scoring_breakdown
+    }
+
+    agent_metrics {
+        text agent_id PK
+        date metric_date PK
+        int tasks_completed
+        int tasks_failed
+        bigint avg_duration_ms
+        bigint p95_duration_ms
+        numeric utilization_pct
+    }
+
+    swarm_events }o--|| swarm_traces : "trace_id"
+    swarm_traces }o--|| agent_metrics : "assigned_agent"
+```
 
 - **`swarm_events`** — Raw event log (30-day retention)
 - **`swarm_traces`** — Materialized trace view with status, duration, pickup time (90-day retention)
@@ -105,24 +177,52 @@ See `migrations/001_initial_schema.sql` for full DDL.
 
 ## Batch Write Strategy
 
-- Flush every 5 seconds or 100 events (whichever first)
-- Write order: events → traces → metrics
-- On failure: re-queue batch, retry next flush
-- After 3 consecutive failures: publish `swarm.system.chronicle.write_failure`
-- Buffer cap: 10,000 events; oldest dropped on overflow with `swarm.system.chronicle.buffer_overflow` alert
+```mermaid
+flowchart TD
+    E[Event arrives] --> BUF[Add to buffer]
+    BUF --> CHECK{Buffer >= 100<br/>or 5s elapsed?}
+    CHECK -- No --> WAIT[Wait]
+    WAIT --> CHECK
+    CHECK -- Yes --> FLUSH[Flush batch]
+    FLUSH --> INS[INSERT into swarm_events]
+    INS -- success --> TRACE[Update swarm_traces]
+    TRACE --> METRIC[Update agent_metrics]
+    METRIC --> DONE[Reset buffer]
+    INS -- failure --> REQUEUE[Re-queue batch]
+    REQUEUE --> FAIL{3 consecutive<br/>failures?}
+    FAIL -- No --> WAIT
+    FAIL -- Yes --> ALERT[Publish write_failure alert]
+    ALERT --> WAIT
+
+    BUF --> OVER{Buffer > 10k?}
+    OVER -- Yes --> DROP[Drop oldest + alert]
+    DROP --> BUF
+```
 
 ## Derived Signals
 
 Computed on each batch flush, not at query time:
 
-- **Task duration** — `completed_at - started_at` on `task.completed`
-- **Time-to-pickup** — `started_at - assigned_at` on `task.started`
-- **Failure rate** — `tasks_failed / (tasks_completed + tasks_failed)` per agent per day
-- **Utilization** — `total_busy_ms / total_uptime_ms * 100` from heartbeat events
+```mermaid
+graph TD
+    subgraph "Task Events"
+        TC[task.completed] --> DUR["duration_ms = completed_at - started_at"]
+        TS[task.started] --> PICKUP["time_to_pickup_ms = started_at - assigned_at"]
+        TF[task.failed] --> FAIL["tasks_failed++"]
+        TC --> COMP["tasks_completed++"]
+    end
 
-Dispatch queries `agent_metrics` for scoring:
-```
-score = capability_match * availability * policy_compliance * historical_performance
+    subgraph "Agent Events"
+        HB[agent.heartbeat] --> UTIL["utilization = busy_ms / uptime_ms * 100"]
+    end
+
+    DUR --> AM[(agent_metrics)]
+    PICKUP --> AM
+    FAIL --> AM
+    COMP --> AM
+    UTIL --> AM
+
+    AM -. "Dispatch queries" .-> SCORE["score = capability * availability *<br/>policy_compliance * historical_performance"]
 ```
 
 ## Testing
