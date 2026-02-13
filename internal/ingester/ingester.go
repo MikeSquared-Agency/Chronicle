@@ -195,5 +195,5 @@ func (ing *Ingester) Close() {
 	for _, cc := range ing.subs {
 		cc.Stop()
 	}
-	ing.nc.Drain()
+	_ = ing.nc.Drain()
 }

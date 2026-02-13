@@ -62,7 +62,7 @@ func TestIntegration_DLQHandlerFiredFromNATS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect to NATS: %v", err)
 	}
-	defer nc.Drain()
+	defer func() { _ = nc.Drain() }()
 
 	dlqPayload, _ := json.Marshal(map[string]any{
 		"event_id":   "dlq-int-1",
@@ -156,7 +156,7 @@ func TestIntegration_DLQAlertPublished(t *testing.T) {
 			"type":    "dlq_entry",
 			"subject": subject,
 		})
-		ing.Publish("swarm.alert.dlq", alertPayload)
+		_ = ing.Publish("swarm.alert.dlq", alertPayload)
 	})
 
 	if err := ing.Start(); err != nil {
@@ -168,7 +168,7 @@ func TestIntegration_DLQAlertPublished(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect to NATS: %v", err)
 	}
-	defer nc.Drain()
+	defer func() { _ = nc.Drain() }()
 
 	alertCh := make(chan *nats.Msg, 1)
 	sub, err := nc.Subscribe("swarm.alert.dlq", func(msg *nats.Msg) {
@@ -177,7 +177,7 @@ func TestIntegration_DLQAlertPublished(t *testing.T) {
 	if err != nil {
 		t.Fatalf("subscribe to alerts: %v", err)
 	}
-	defer sub.Unsubscribe()
+	defer func() { _ = sub.Unsubscribe() }()
 
 	// Publish a DLQ event.
 	dlqPayload, _ := json.Marshal(map[string]any{

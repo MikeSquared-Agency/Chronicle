@@ -58,7 +58,7 @@ func TestIntegration_IngestFromNATS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect to NATS: %v", err)
 	}
-	defer nc.Drain()
+	defer func() { _ = nc.Drain() }()
 
 	evt, _ := json.Marshal(map[string]any{
 		"event_id":   "nats-test-1",
