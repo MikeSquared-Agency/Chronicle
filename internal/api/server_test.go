@@ -26,7 +26,7 @@ func setupServer(ms store.DataStore) *Server {
 		FlushThreshold: 1000,
 		BufferMax:      10000,
 	})
-	return NewServer(ms, bat, 8700)
+	return NewServer(ms, bat, 8700, nil)
 }
 
 func TestHealthEndpoint(t *testing.T) {

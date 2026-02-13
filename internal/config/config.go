@@ -7,14 +7,15 @@ import (
 )
 
 type Config struct {
-	Port               int
-	NatsURL            string
-	DatabaseURL        string
-	AlexandriaURL      string
-	BatchFlushInterval time.Duration
+	Port                int
+	NatsURL             string
+	DatabaseURL         string
+	AlexandriaURL       string
+	BatchFlushInterval  time.Duration
 	BatchFlushThreshold int
-	BufferMaxSize      int
-	LogLevel           string
+	BufferMaxSize       int
+	LogLevel            string
+	DLQScanInterval     time.Duration
 }
 
 func Load() Config {
@@ -27,6 +28,7 @@ func Load() Config {
 		BatchFlushThreshold: envInt("BATCH_FLUSH_THRESHOLD", 100),
 		BufferMaxSize:       envInt("BUFFER_MAX_SIZE", 10000),
 		LogLevel:            envStr("LOG_LEVEL", "info"),
+		DLQScanInterval:     time.Duration(envInt("DLQ_SCAN_INTERVAL_MS", 300000)) * time.Millisecond,
 	}
 }
 

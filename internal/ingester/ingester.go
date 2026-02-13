@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"chronicle/internal/batcher"
@@ -13,11 +14,17 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+// DLQHandlerFunc is called for every message on dlq.> subjects.
+type DLQHandlerFunc func(ctx context.Context, subject string, data []byte)
+
 type Ingester struct {
-	nc      *nats.Conn
-	js      jetstream.JetStream
-	batcher *batcher.Batcher
-	subs    []jetstream.ConsumeContext
+	nc         *nats.Conn
+	js         jetstream.JetStream
+	batcher    *batcher.Batcher
+	subs       []jetstream.ConsumeContext
+	dlqHandler DLQHandlerFunc
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 // streamSubjects maps JetStream stream names to the subjects Chronicle subscribes to.
@@ -49,10 +56,13 @@ func New(natsURL string, b *batcher.Batcher) (*Ingester, error) {
 		return nil, fmt.Errorf("jetstream init: %w", err)
 	}
 
+	ictx, ican := context.WithCancel(context.Background())
 	ing := &Ingester{
 		nc:      nc,
 		js:      js,
 		batcher: b,
+		ctx:     ictx,
+		cancel:  ican,
 	}
 
 	// Give the batcher a way to publish alerts back to NATS.
@@ -149,6 +159,11 @@ func (ing *Ingester) handleMessage(msg jetstream.Msg) {
 		e.Source = msg.Subject()
 	}
 
+	// Fork DLQ messages to the dedicated DLQ processor.
+	if strings.HasPrefix(msg.Subject(), "dlq.") && ing.dlqHandler != nil {
+		ing.dlqHandler(ing.ctx, msg.Subject(), msg.Data())
+	}
+
 	ing.batcher.Add(e)
 
 	// Ack after adding to buffer. The durable consumer will redeliver if Chronicle
@@ -159,6 +174,16 @@ func (ing *Ingester) handleMessage(msg jetstream.Msg) {
 	}
 }
 
+// SetDLQHandler registers a callback for DLQ messages.
+func (ing *Ingester) SetDLQHandler(fn DLQHandlerFunc) {
+	ing.dlqHandler = fn
+}
+
+// NATSConn returns the underlying NATS connection (for sharing with DLQ components).
+func (ing *Ingester) NATSConn() *nats.Conn {
+	return ing.nc
+}
+
 // Publish sends a message to NATS (used for announcing Chronicle's own lifecycle).
 func (ing *Ingester) Publish(subject string, data []byte) error {
 	return ing.nc.Publish(subject, data)
@@ -166,6 +191,7 @@ func (ing *Ingester) Publish(subject string, data []byte) error {
 
 // Close drains subscriptions and closes the NATS connection.
 func (ing *Ingester) Close() {
+	ing.cancel()
 	for _, cc := range ing.subs {
 		cc.Stop()
 	}

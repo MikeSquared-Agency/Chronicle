@@ -42,6 +42,11 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
+// Pool returns the underlying pgx connection pool for sharing with other components.
+func (s *Store) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
 // InsertEvents batch-inserts normalized events into swarm_events.
 func (s *Store) InsertEvents(ctx context.Context, evts []events.Event) error {
 	if len(evts) == 0 {
