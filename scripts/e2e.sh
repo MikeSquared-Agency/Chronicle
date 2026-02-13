@@ -70,6 +70,87 @@ else
   fail "GET /api/v1/dlq/stats" "expected 200, got $HTTP"
 fi
 
+###############################################################################
+# Write-path tests: publish events via NATS, wait for flush, verify via API  #
+###############################################################################
+
+echo ""
+echo "=== Chronicle E2E Write-Path Tests ==="
+
+NATS_URL="${NATS_URL:-nats://localhost:4222}"
+TRACE_ID="e2e-test-$(date +%s)"
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+echo "--- Publish task lifecycle via NATS (trace_id=$TRACE_ID) ---"
+
+# Chronicle creates JetStream streams on startup (ensureStream), so subjects
+# like swarm.task.> are already captured. Plain `nats pub` is sufficient
+# because JetStream streams match on the subject.
+
+nats pub --server="$NATS_URL" swarm.task.created \
+  "{\"event_id\":\"$(uuidgen)\",\"trace_id\":\"$TRACE_ID\",\"source\":\"e2e\",\"event_type\":\"task.created\",\"timestamp\":\"$NOW\",\"metadata\":{\"title\":\"E2E Test Task\",\"owner\":\"e2e-runner\"}}"
+pass "published swarm.task.created"
+
+sleep 0.2
+
+nats pub --server="$NATS_URL" swarm.task.assigned \
+  "{\"event_id\":\"$(uuidgen)\",\"trace_id\":\"$TRACE_ID\",\"source\":\"e2e\",\"event_type\":\"task.assigned\",\"timestamp\":\"$NOW\",\"metadata\":{\"agent\":\"e2e-agent\"}}"
+pass "published swarm.task.assigned"
+
+sleep 0.2
+
+nats pub --server="$NATS_URL" swarm.task.started \
+  "{\"event_id\":\"$(uuidgen)\",\"trace_id\":\"$TRACE_ID\",\"source\":\"e2e\",\"event_type\":\"task.started\",\"timestamp\":\"$NOW\",\"metadata\":{}}"
+pass "published swarm.task.started"
+
+sleep 0.2
+
+nats pub --server="$NATS_URL" swarm.task.completed \
+  "{\"event_id\":\"$(uuidgen)\",\"trace_id\":\"$TRACE_ID\",\"source\":\"e2e\",\"event_type\":\"task.completed\",\"timestamp\":\"$NOW\",\"metadata\":{}}"
+pass "published swarm.task.completed"
+
+# Wait for the batcher to flush (default flush interval is 5s).
+echo "--- Waiting for batch flush (8s) ---"
+sleep 8
+
+# 8. Verify trace appeared in the API.
+echo "--- Verify trace materialized ---"
+HTTP=$(curl -s -o /tmp/e2e_body -w '%{http_code}' "$BASE/traces")
+if [ "$HTTP" = "200" ]; then
+  if grep -q "$TRACE_ID" /tmp/e2e_body; then
+    pass "GET /api/v1/traces contains $TRACE_ID"
+  else
+    fail "GET /api/v1/traces" "trace $TRACE_ID not found in response"
+  fi
+else
+  fail "GET /api/v1/traces" "expected 200, got $HTTP"
+fi
+
+# 9. Verify all 4 events returned for the trace.
+echo "--- Verify events for trace ---"
+HTTP=$(curl -s -o /tmp/e2e_body -w '%{http_code}' "$BASE/events?trace_id=$TRACE_ID")
+if [ "$HTTP" = "200" ]; then
+  pass "GET /api/v1/events?trace_id=$TRACE_ID → 200"
+
+  # Count how many of our 4 event types appear in the response.
+  FOUND=0
+  for EVT_TYPE in task.created task.assigned task.started task.completed; do
+    if grep -q "\"event_type\":\"$EVT_TYPE\"" /tmp/e2e_body 2>/dev/null || \
+       grep -q "\"event_type\": \"$EVT_TYPE\"" /tmp/e2e_body 2>/dev/null; then
+      FOUND=$((FOUND + 1))
+    fi
+  done
+
+  if [ "$FOUND" -eq 4 ]; then
+    pass "all 4 lifecycle events found (created, assigned, started, completed)"
+  else
+    fail "event count" "expected 4 event types, found $FOUND in response"
+    echo "  Response body:" && cat /tmp/e2e_body && echo ""
+  fi
+else
+  fail "GET /api/v1/events?trace_id=$TRACE_ID" "expected 200, got $HTTP"
+fi
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
   echo "All Chronicle E2E tests passed."
