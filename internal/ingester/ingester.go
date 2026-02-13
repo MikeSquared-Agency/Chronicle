@@ -32,6 +32,13 @@ var streamSubjects = map[string][]string{
 	"TASK_EVENTS":   {"swarm.task.>"},
 	"SYSTEM_EVENTS": {"swarm.agent.>", "swarm.system.>", "swarm.lifecycle.>"},
 	"DLQ":           {"dlq.>"},
+	"SLACK_EVENTS":  {"swarm.slack.>"},
+}
+
+// streamMaxAge overrides the default 7-day retention per stream.
+var streamMaxAge = map[string]time.Duration{
+	"TASK_EVENTS":  30 * 24 * time.Hour, // 30 days
+	"SLACK_EVENTS": 14 * 24 * time.Hour, // 14 days
 }
 
 func New(natsURL string, b *batcher.Batcher) (*Ingester, error) {
@@ -102,11 +109,15 @@ func (ing *Ingester) ensureStream(ctx context.Context, name string, subjects []s
 	}
 
 	// Create stream if it doesn't exist.
+	maxAge := 7 * 24 * time.Hour
+	if override, ok := streamMaxAge[name]; ok {
+		maxAge = override
+	}
 	_, err = ing.js.CreateStream(ctx, jetstream.StreamConfig{
 		Name:      name,
 		Subjects:  subjects,
 		Retention: jetstream.LimitsPolicy,
-		MaxAge:    7 * 24 * time.Hour,
+		MaxAge:    maxAge,
 		Storage:   jetstream.FileStorage,
 		Replicas:  1,
 	})

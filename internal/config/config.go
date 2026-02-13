@@ -16,6 +16,8 @@ type Config struct {
 	BufferMaxSize       int
 	LogLevel            string
 	DLQScanInterval     time.Duration
+	SlackBotToken       string
+	SlackAlertChannel   string
 }
 
 func Load() Config {
@@ -29,6 +31,8 @@ func Load() Config {
 		BufferMaxSize:       envInt("BUFFER_MAX_SIZE", 10000),
 		LogLevel:            envStr("LOG_LEVEL", "info"),
 		DLQScanInterval:     time.Duration(envInt("DLQ_SCAN_INTERVAL_MS", 300000)) * time.Millisecond,
+		SlackBotToken:       envStr("SLACK_BOT_TOKEN", ""),
+		SlackAlertChannel:   envStr("SLACK_ALERT_CHANNEL", ""),
 	}
 }
 
