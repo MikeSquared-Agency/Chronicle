@@ -73,7 +73,7 @@ func main() {
 	dlqStore := dlq.NewStore(db.Pool())
 	dlqProc := dlq.NewProcessor(dlqStore)
 	dlqHandler := dlq.NewHandler(dlqStore, ing.NATSConn())
-	dlqScanner := dlq.NewScanner(dlqStore, ing.NATSConn(), 5*time.Minute)
+	dlqScanner := dlq.NewScanner(dlqStore, ing.NATSConn(), cfg.DLQScanInterval)
 
 	// Wire DLQ processor into the ingester — on dlq.> messages, persist to swarm_dlq
 	// and publish an alert to NATS for Slack notifications.
@@ -100,7 +100,7 @@ func main() {
 
 	// Start DLQ recovery scanner.
 	dlqScanner.Start(ctx)
-	slog.Info("DLQ scanner started", "interval", "5m")
+	slog.Info("DLQ scanner started", "interval", cfg.DLQScanInterval)
 
 	// Step 6: Announce availability.
 	announcement, _ := json.Marshal(map[string]any{

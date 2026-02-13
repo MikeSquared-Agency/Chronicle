@@ -23,6 +23,8 @@ type Ingester struct {
 	batcher    *batcher.Batcher
 	subs       []jetstream.ConsumeContext
 	dlqHandler DLQHandlerFunc
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 // streamSubjects maps JetStream stream names to the subjects Chronicle subscribes to.
@@ -54,10 +56,13 @@ func New(natsURL string, b *batcher.Batcher) (*Ingester, error) {
 		return nil, fmt.Errorf("jetstream init: %w", err)
 	}
 
+	ictx, ican := context.WithCancel(context.Background())
 	ing := &Ingester{
 		nc:      nc,
 		js:      js,
 		batcher: b,
+		ctx:     ictx,
+		cancel:  ican,
 	}
 
 	// Give the batcher a way to publish alerts back to NATS.
@@ -156,7 +161,7 @@ func (ing *Ingester) handleMessage(msg jetstream.Msg) {
 
 	// Fork DLQ messages to the dedicated DLQ processor.
 	if strings.HasPrefix(msg.Subject(), "dlq.") && ing.dlqHandler != nil {
-		ing.dlqHandler(context.Background(), msg.Subject(), msg.Data())
+		ing.dlqHandler(ing.ctx, msg.Subject(), msg.Data())
 	}
 
 	ing.batcher.Add(e)
@@ -186,6 +191,7 @@ func (ing *Ingester) Publish(subject string, data []byte) error {
 
 // Close drains subscriptions and closes the NATS connection.
 func (ing *Ingester) Close() {
+	ing.cancel()
 	for _, cc := range ing.subs {
 		cc.Stop()
 	}

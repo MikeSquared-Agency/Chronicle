@@ -1,5 +1,8 @@
 -- DLQ: Dead Letter Queue table
--- Apply to swarm Supabase project (uaubofpmokvumbqpeymz)
+--
+-- Retention: Recovered entries can be purged after 30 days. Run periodically:
+--   DELETE FROM swarm_dlq WHERE recovered = true AND recovered_at < now() - interval '30 days';
+-- Unrecovered entries are kept indefinitely for audit.
 
 create table if not exists swarm_dlq (
   dlq_id           uuid primary key default gen_random_uuid(),

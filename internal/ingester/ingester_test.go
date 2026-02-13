@@ -116,10 +116,6 @@ func TestHandleMessage_NilDLQHandler_NoPanic(t *testing.T) {
 
 	msg := &fakeMsg{subject: "dlq.task.unassignable", data: payload}
 	ing.handleMessage(msg) // Should not panic.
-
-	if ms.GetEventCount() != 0 {
-		// Event goes to batcher but hasn't flushed yet — just checking no panic.
-	}
 }
 
 func TestDLQHandler_ReceivesRawData(t *testing.T) {

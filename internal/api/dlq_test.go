@@ -56,7 +56,9 @@ func TestDLQ_ListEmpty(t *testing.T) {
 	}
 
 	var body []any
-	json.NewDecoder(w.Body).Decode(&body)
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if len(body) != 0 {
 		t.Errorf("expected empty list, got %d items", len(body))
 	}
@@ -85,7 +87,9 @@ func TestDLQ_ListWithEntries(t *testing.T) {
 	}
 
 	var body []map[string]any
-	json.NewDecoder(w.Body).Decode(&body)
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if len(body) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(body))
 	}
@@ -129,7 +133,9 @@ func TestDLQ_GetFound(t *testing.T) {
 	}
 
 	var body map[string]any
-	json.NewDecoder(w.Body).Decode(&body)
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if body["reason"] != "no_capable_agent" {
 		t.Errorf("expected reason no_capable_agent, got %v", body["reason"])
 	}
@@ -155,7 +161,9 @@ func TestDLQ_Stats(t *testing.T) {
 	}
 
 	var body map[string]any
-	json.NewDecoder(w.Body).Decode(&body)
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if body["total"] != float64(1) {
 		t.Errorf("expected total 1, got %v", body["total"])
 	}

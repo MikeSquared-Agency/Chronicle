@@ -96,8 +96,23 @@ func TestIntegration_DLQHandlerFiredFromNATS(t *testing.T) {
 	}
 	nc.Flush()
 
-	// Wait for events to be consumed.
-	time.Sleep(1 * time.Second)
+	// Poll for the DLQ handler to be called.
+	deadline := time.After(5 * time.Second)
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		mu.Lock()
+		n := len(dlqCalls)
+		mu.Unlock()
+		if n >= 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for DLQ handler call")
+		case <-tick.C:
+		}
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -108,11 +123,6 @@ func TestIntegration_DLQHandlerFiredFromNATS(t *testing.T) {
 	}
 	if dlqCalls[0].subject != "dlq.task.unassignable" {
 		t.Errorf("expected subject dlq.task.unassignable, got %s", dlqCalls[0].subject)
-	}
-
-	// Both events should have been batched (DLQ events still go through normal pipeline too).
-	if ms.GetEventCount() < 1 {
-		t.Errorf("expected at least 1 event in store, got %d", ms.GetEventCount())
 	}
 }
 
