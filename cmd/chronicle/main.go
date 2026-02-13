@@ -16,6 +16,8 @@ import (
 	"chronicle/internal/metrics"
 	"chronicle/internal/store"
 	"chronicle/internal/traces"
+
+	dlq "github.com/DarlingtonDeveloper/swarm-dlq"
 )
 
 func main() {
@@ -67,13 +69,40 @@ func main() {
 	}
 	defer ing.Close()
 
+	// Step 5: Initialize DLQ components (store, processor, handler, scanner).
+	dlqStore := dlq.NewStore(db.Pool())
+	dlqProc := dlq.NewProcessor(dlqStore)
+	dlqHandler := dlq.NewHandler(dlqStore, ing.NATSConn())
+	dlqScanner := dlq.NewScanner(dlqStore, ing.NATSConn(), 5*time.Minute)
+
+	// Wire DLQ processor into the ingester — on dlq.> messages, persist to swarm_dlq
+	// and publish an alert to NATS for Slack notifications.
+	ing.SetDLQHandler(func(ctx context.Context, subject string, data []byte) {
+		dlqProc.Process(ctx, subject, data)
+
+		// Publish alert for downstream watchers (e.g. Slack #alerts).
+		alertPayload, _ := json.Marshal(map[string]any{
+			"channel":  "alerts",
+			"type":     "dlq_entry",
+			"subject":  subject,
+			"raw_size": len(data),
+		})
+		if err := ing.Publish("swarm.alert.dlq", alertPayload); err != nil {
+			slog.Warn("failed to publish DLQ alert", "error", err)
+		}
+	})
+
 	if err := ing.Start(); err != nil {
 		slog.Error("failed to start ingester", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("NATS ingester started")
 
-	// Step 5: Announce availability.
+	// Start DLQ recovery scanner.
+	dlqScanner.Start(ctx)
+	slog.Info("DLQ scanner started", "interval", "5m")
+
+	// Step 6: Announce availability.
 	announcement, _ := json.Marshal(map[string]any{
 		"event_type": "agent.registered",
 		"source":     "chronicle",
@@ -84,8 +113,8 @@ func main() {
 		slog.Warn("failed to publish registration event", "error", err)
 	}
 
-	// Step 6: Start HTTP API.
-	srv := api.NewServer(db, bat, cfg.Port)
+	// Step 7: Start HTTP API with DLQ routes mounted at /api/v1/dlq.
+	srv := api.NewServer(db, bat, cfg.Port, dlqHandler.Routes())
 	go func() {
 		if err := srv.Start(); err != nil {
 			slog.Error("HTTP server error", "error", err)
@@ -101,6 +130,7 @@ func main() {
 
 	slog.Info("shutting down", "signal", sig)
 	cancel()
+	dlqScanner.Wait()
 	bat.Wait()
 	slog.Info("chronicle stopped")
 }

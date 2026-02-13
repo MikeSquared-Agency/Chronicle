@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"chronicle/internal/batcher"
@@ -13,11 +14,15 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+// DLQHandlerFunc is called for every message on dlq.> subjects.
+type DLQHandlerFunc func(ctx context.Context, subject string, data []byte)
+
 type Ingester struct {
-	nc      *nats.Conn
-	js      jetstream.JetStream
-	batcher *batcher.Batcher
-	subs    []jetstream.ConsumeContext
+	nc         *nats.Conn
+	js         jetstream.JetStream
+	batcher    *batcher.Batcher
+	subs       []jetstream.ConsumeContext
+	dlqHandler DLQHandlerFunc
 }
 
 // streamSubjects maps JetStream stream names to the subjects Chronicle subscribes to.
@@ -149,6 +154,11 @@ func (ing *Ingester) handleMessage(msg jetstream.Msg) {
 		e.Source = msg.Subject()
 	}
 
+	// Fork DLQ messages to the dedicated DLQ processor.
+	if strings.HasPrefix(msg.Subject(), "dlq.") && ing.dlqHandler != nil {
+		ing.dlqHandler(context.Background(), msg.Subject(), msg.Data())
+	}
+
 	ing.batcher.Add(e)
 
 	// Ack after adding to buffer. The durable consumer will redeliver if Chronicle
@@ -157,6 +167,16 @@ func (ing *Ingester) handleMessage(msg jetstream.Msg) {
 	if err := msg.Ack(); err != nil {
 		slog.Warn("failed to ack message", "subject", msg.Subject(), "error", err)
 	}
+}
+
+// SetDLQHandler registers a callback for DLQ messages.
+func (ing *Ingester) SetDLQHandler(fn DLQHandlerFunc) {
+	ing.dlqHandler = fn
+}
+
+// NATSConn returns the underlying NATS connection (for sharing with DLQ components).
+func (ing *Ingester) NATSConn() *nats.Conn {
+	return ing.nc
 }
 
 // Publish sends a message to NATS (used for announcing Chronicle's own lifecycle).

@@ -21,7 +21,7 @@ type Server struct {
 	port    int
 }
 
-func NewServer(s store.DataStore, b *batcher.Batcher, port int) *Server {
+func NewServer(s store.DataStore, b *batcher.Batcher, port int, dlqRoutes chi.Router) *Server {
 	srv := &Server{
 		store:   s,
 		batcher: b,
@@ -39,6 +39,9 @@ func NewServer(s store.DataStore, b *batcher.Batcher, port int) *Server {
 		r.Get("/traces/{traceID}", srv.handleGetTrace)
 		r.Get("/metrics/{agentID}/latest", srv.handleGetAgentMetrics)
 		r.Get("/metrics/summary", srv.handleMetricsSummary)
+		if dlqRoutes != nil {
+			r.Mount("/dlq", dlqRoutes)
+		}
 	})
 
 	srv.router = r
