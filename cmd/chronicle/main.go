@@ -14,6 +14,7 @@ import (
 	"github.com/MikeSquared-Agency/chronicle/internal/config"
 	"github.com/MikeSquared-Agency/chronicle/internal/ingester"
 	"github.com/MikeSquared-Agency/chronicle/internal/metrics"
+	slackalert "github.com/MikeSquared-Agency/chronicle/internal/slack"
 	"github.com/MikeSquared-Agency/chronicle/internal/store"
 	"github.com/MikeSquared-Agency/chronicle/internal/traces"
 
@@ -75,6 +76,13 @@ func main() {
 	dlqHandler := dlq.NewHandler(dlqStore, ing.NATSConn())
 	dlqScanner := dlq.NewScanner(dlqStore, ing.NATSConn(), cfg.DLQScanInterval)
 
+	// Conditionally create Slack alerter for DLQ notifications.
+	var slackAlerter *slackalert.Alerter
+	if cfg.SlackBotToken != "" && cfg.SlackAlertChannel != "" {
+		slackAlerter = slackalert.NewAlerter(cfg.SlackBotToken, cfg.SlackAlertChannel)
+		slog.Info("Slack DLQ alerter enabled", "channel", cfg.SlackAlertChannel)
+	}
+
 	// Wire DLQ processor into the ingester — on dlq.> messages, persist to swarm_dlq
 	// and publish an alert to NATS for Slack notifications.
 	ing.SetDLQHandler(func(ctx context.Context, subject string, data []byte) {
@@ -89,6 +97,13 @@ func main() {
 		})
 		if err := ing.Publish("swarm.alert.dlq", alertPayload); err != nil {
 			slog.Warn("failed to publish DLQ alert", "error", err)
+		}
+
+		// Post to Slack if alerter is configured.
+		if slackAlerter != nil {
+			if err := slackAlerter.PostDLQAlert(ctx, subject, data); err != nil {
+				slog.Warn("failed to post DLQ alert to Slack", "error", err)
+			}
 		}
 	})
 
