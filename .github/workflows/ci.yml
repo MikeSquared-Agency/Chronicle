@@ -35,15 +35,18 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      nats:
-        image: nats:latest
-        ports:
-          - 4222:4222
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+      - name: Start NATS with JetStream
+        run: |
+          docker run -d --name nats -p 4222:4222 nats:latest -js
+          # Wait for NATS to be ready
+          for i in $(seq 1 15); do
+            nc -z localhost 4222 && break || sleep 1
+          done
       - name: Run migrations
         run: |
           for f in migrations/*.sql; do
@@ -65,7 +68,12 @@ jobs:
             curl -sf http://localhost:8700/api/v1/health && exit 0 || sleep 1
           done
           exit 1
+      - name: Install NATS CLI
+        run: |
+          curl -sf https://binaries.nats.dev/nats-io/natscli/nats@latest | sh
+          sudo mv nats /usr/local/bin/
       - name: Run E2E tests
         run: bash scripts/e2e.sh
         env:
           CHRONICLE_PORT: "8700"
+          NATS_URL: nats://localhost:4222
