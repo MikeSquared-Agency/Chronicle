@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"chronicle/internal/events"
+	"github.com/MikeSquared-Agency/chronicle/internal/events"
 )
 
 func skipWithoutDB(t *testing.T) string {

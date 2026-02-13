@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"chronicle/internal/batcher"
-	"chronicle/internal/events"
-	"chronicle/internal/store"
-	"chronicle/internal/testutil"
+	"github.com/MikeSquared-Agency/chronicle/internal/batcher"
+	"github.com/MikeSquared-Agency/chronicle/internal/events"
+	"github.com/MikeSquared-Agency/chronicle/internal/store"
+	"github.com/MikeSquared-Agency/chronicle/internal/testutil"
 )
 
 // noopProcessor satisfies batcher.EventProcessor.

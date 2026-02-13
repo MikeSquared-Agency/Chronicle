@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"chronicle/internal/batcher"
-	"chronicle/internal/events"
-	"chronicle/internal/testutil"
+	"github.com/MikeSquared-Agency/chronicle/internal/batcher"
+	"github.com/MikeSquared-Agency/chronicle/internal/events"
+	"github.com/MikeSquared-Agency/chronicle/internal/testutil"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"

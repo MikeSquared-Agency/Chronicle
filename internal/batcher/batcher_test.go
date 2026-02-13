@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"chronicle/internal/events"
-	"chronicle/internal/testutil"
+	"github.com/MikeSquared-Agency/chronicle/internal/events"
+	"github.com/MikeSquared-Agency/chronicle/internal/testutil"
 )
 
 func makeEvent(id, traceID, eventType string) events.Event {

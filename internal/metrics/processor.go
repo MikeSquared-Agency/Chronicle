@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"chronicle/internal/events"
-	"chronicle/internal/store"
+	"github.com/MikeSquared-Agency/chronicle/internal/events"
+	"github.com/MikeSquared-Agency/chronicle/internal/store"
 )
 
 type Processor struct {

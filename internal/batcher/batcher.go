@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"chronicle/internal/events"
-	"chronicle/internal/store"
+	"github.com/MikeSquared-Agency/chronicle/internal/events"
+	"github.com/MikeSquared-Agency/chronicle/internal/store"
 )
 
 // EventProcessor processes a single event (used for trace and metrics processors).

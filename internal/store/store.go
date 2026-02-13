@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"chronicle/internal/events"
+	"github.com/MikeSquared-Agency/chronicle/internal/events"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

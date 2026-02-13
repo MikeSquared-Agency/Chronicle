@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"chronicle/internal/batcher"
-	"chronicle/internal/store"
+	"github.com/MikeSquared-Agency/chronicle/internal/batcher"
+	"github.com/MikeSquared-Agency/chronicle/internal/store"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"

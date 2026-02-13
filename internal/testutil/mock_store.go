@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"chronicle/internal/events"
+	"github.com/MikeSquared-Agency/chronicle/internal/events"
 )
 
 // MockStore is a thread-safe in-memory implementation of store.DataStore for testing.

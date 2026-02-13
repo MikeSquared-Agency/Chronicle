@@ -1,16 +1,14 @@
-module chronicle
+module github.com/MikeSquared-Agency/chronicle
 
 go 1.22.2
 
 require (
-	github.com/DarlingtonDeveloper/swarm-dlq v0.0.0
+	github.com/MikeSquared-Agency/swarm-dlq v0.1.0
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/nats-io/nats.go v1.37.0
 )
-
-replace github.com/DarlingtonDeveloper/swarm-dlq => ../swarm-dlq
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect

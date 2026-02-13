@@ -9,15 +9,15 @@ import (
 	"syscall"
 	"time"
 
-	"chronicle/internal/api"
-	"chronicle/internal/batcher"
-	"chronicle/internal/config"
-	"chronicle/internal/ingester"
-	"chronicle/internal/metrics"
-	"chronicle/internal/store"
-	"chronicle/internal/traces"
+	"github.com/MikeSquared-Agency/chronicle/internal/api"
+	"github.com/MikeSquared-Agency/chronicle/internal/batcher"
+	"github.com/MikeSquared-Agency/chronicle/internal/config"
+	"github.com/MikeSquared-Agency/chronicle/internal/ingester"
+	"github.com/MikeSquared-Agency/chronicle/internal/metrics"
+	"github.com/MikeSquared-Agency/chronicle/internal/store"
+	"github.com/MikeSquared-Agency/chronicle/internal/traces"
 
-	dlq "github.com/DarlingtonDeveloper/swarm-dlq"
+	dlq "github.com/MikeSquared-Agency/swarm-dlq"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"chronicle/internal/events"
+	"github.com/MikeSquared-Agency/chronicle/internal/events"
 )
 
 // DataStore is the interface consumed by batcher, processors, and the API.
