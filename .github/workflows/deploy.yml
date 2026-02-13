@@ -3,12 +3,12 @@ name: Deploy
 on:
   workflow_dispatch:
   push:
-    branches: [master]
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: [self-hosted, openclaw]
     steps:
-      - run: cd ~/chronicle && git pull origin master
+      - run: cd ~/chronicle && git pull origin main
       - run: cd ~/chronicle && docker build -t chronicle:latest .
       - run: docker service update --force warren_chronicle
