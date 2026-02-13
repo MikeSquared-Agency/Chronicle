@@ -69,7 +69,7 @@ func TestIntegration_InsertAndQueryEvents(t *testing.T) {
 	}
 
 	// Cleanup.
-	s.pool.Exec(ctx, "DELETE FROM swarm_events WHERE trace_id = $1", traceID)
+	_, _ = s.pool.Exec(ctx, "DELETE FROM swarm_events WHERE trace_id = $1", traceID)
 }
 
 func TestIntegration_UpsertAndGetTrace(t *testing.T) {
@@ -112,7 +112,7 @@ func TestIntegration_UpsertAndGetTrace(t *testing.T) {
 	}
 
 	// Cleanup.
-	s.pool.Exec(ctx, "DELETE FROM swarm_traces WHERE trace_id = $1", traceID)
+	_, _ = s.pool.Exec(ctx, "DELETE FROM swarm_traces WHERE trace_id = $1", traceID)
 }
 
 func TestIntegration_UpsertAndGetAgentMetrics(t *testing.T) {
@@ -139,7 +139,7 @@ func TestIntegration_UpsertAndGetAgentMetrics(t *testing.T) {
 	}
 
 	// Cleanup.
-	s.pool.Exec(ctx, "DELETE FROM agent_metrics WHERE agent_id = $1", agentID)
+	_, _ = s.pool.Exec(ctx, "DELETE FROM agent_metrics WHERE agent_id = $1", agentID)
 }
 
 func TestIntegration_QueryTraces(t *testing.T) {
@@ -154,7 +154,7 @@ func TestIntegration_QueryTraces(t *testing.T) {
 		if i == 2 {
 			status = "completed"
 		}
-		s.UpsertTrace(ctx, traceID, map[string]any{"status": status})
+		_ = s.UpsertTrace(ctx, traceID, map[string]any{"status": status})
 	}
 
 	// Query all.
@@ -180,7 +180,7 @@ func TestIntegration_QueryTraces(t *testing.T) {
 	// Cleanup.
 	for i := 0; i < 3; i++ {
 		traceID := prefix + "-" + string(rune('a'+i))
-		s.pool.Exec(ctx, "DELETE FROM swarm_traces WHERE trace_id = $1", traceID)
+		_, _ = s.pool.Exec(ctx, "DELETE FROM swarm_traces WHERE trace_id = $1", traceID)
 	}
 }
 
@@ -192,8 +192,8 @@ func TestIntegration_GetAllAgentMetricsSummary(t *testing.T) {
 	agent2 := "int-summ-b-" + time.Now().Format("150405")
 	now := time.Now().UTC()
 
-	s.UpsertAgentMetric(ctx, agent1, now, map[string]any{"inc_completed": true})
-	s.UpsertAgentMetric(ctx, agent2, now, map[string]any{"inc_failed": true})
+	_ = s.UpsertAgentMetric(ctx, agent1, now, map[string]any{"inc_completed": true})
+	_ = s.UpsertAgentMetric(ctx, agent2, now, map[string]any{"inc_failed": true})
 
 	summary, err := s.GetAllAgentMetricsSummary(ctx)
 	if err != nil {
@@ -204,5 +204,5 @@ func TestIntegration_GetAllAgentMetricsSummary(t *testing.T) {
 	}
 
 	// Cleanup.
-	s.pool.Exec(ctx, "DELETE FROM agent_metrics WHERE agent_id IN ($1, $2)", agent1, agent2)
+	_, _ = s.pool.Exec(ctx, "DELETE FROM agent_metrics WHERE agent_id IN ($1, $2)", agent1, agent2)
 }

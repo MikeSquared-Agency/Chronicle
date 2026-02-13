@@ -42,7 +42,7 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 
 	var body map[string]any
-	json.NewDecoder(w.Body).Decode(&body)
+	_ = json.NewDecoder(w.Body).Decode(&body)
 	if body["status"] != "ok" {
 		t.Errorf("expected status ok, got %v", body["status"])
 	}
@@ -84,7 +84,7 @@ func TestEventsEndpoint_WithTraceID(t *testing.T) {
 	}
 
 	var body []map[string]any
-	json.NewDecoder(w.Body).Decode(&body)
+	_ = json.NewDecoder(w.Body).Decode(&body)
 	if len(body) != 1 {
 		t.Errorf("expected 1 event, got %d", len(body))
 	}
@@ -105,7 +105,7 @@ func TestTracesEndpoint_ListAll(t *testing.T) {
 	}
 
 	var body []map[string]any
-	json.NewDecoder(w.Body).Decode(&body)
+	_ = json.NewDecoder(w.Body).Decode(&body)
 	if len(body) != 2 {
 		t.Errorf("expected 2 traces, got %d", len(body))
 	}
@@ -126,7 +126,7 @@ func TestTracesEndpoint_FilterByStatus(t *testing.T) {
 	}
 
 	var body []map[string]any
-	json.NewDecoder(w.Body).Decode(&body)
+	_ = json.NewDecoder(w.Body).Decode(&body)
 	if len(body) != 1 {
 		t.Errorf("expected 1 pending trace, got %d", len(body))
 	}
@@ -146,7 +146,7 @@ func TestGetTrace_Found(t *testing.T) {
 	}
 
 	var body map[string]any
-	json.NewDecoder(w.Body).Decode(&body)
+	_ = json.NewDecoder(w.Body).Decode(&body)
 	if body["trace_id"] != "task-1" {
 		t.Errorf("expected trace_id task-1, got %v", body["trace_id"])
 	}
@@ -208,7 +208,7 @@ func TestMetricsSummary(t *testing.T) {
 	}
 
 	var body []map[string]any
-	json.NewDecoder(w.Body).Decode(&body)
+	_ = json.NewDecoder(w.Body).Decode(&body)
 	if len(body) != 2 {
 		t.Errorf("expected 2 agents, got %d", len(body))
 	}
@@ -233,7 +233,7 @@ func TestTracesEndpoint_CustomLimit(t *testing.T) {
 	}
 
 	var body []map[string]any
-	json.NewDecoder(w.Body).Decode(&body)
+	_ = json.NewDecoder(w.Body).Decode(&body)
 	if len(body) > 3 {
 		t.Errorf("expected at most 3 traces, got %d", len(body))
 	}
