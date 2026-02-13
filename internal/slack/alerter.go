@@ -114,7 +114,7 @@ func (a *Alerter) PostDLQAlert(ctx context.Context, subject string, payload []by
 		return fmt.Errorf("slack post: %w", err)
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("slack returned %d", resp.StatusCode)
