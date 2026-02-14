@@ -187,3 +187,12 @@ func (m *MockStore) GetEventCount() int {
 	defer m.mu.Unlock()
 	return len(m.Events)
 }
+
+// GetEvents returns a copy of all stored events.
+func (m *MockStore) GetEvents() []events.Event {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := make([]events.Event, len(m.Events))
+	copy(cp, m.Events)
+	return cp
+}

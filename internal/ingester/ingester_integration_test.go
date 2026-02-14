@@ -108,5 +108,74 @@ func TestIntegration_PublishAnnouncement(t *testing.T) {
 	}
 }
 
+func TestIntegration_IngestGatewaySessionChunk(t *testing.T) {
+	natsURL := skipWithoutNATS(t)
+
+	ms := testutil.NewMockStore()
+	bat := batcher.New(ms, &noopProcessor{}, &noopProcessor{}, batcher.Config{
+		FlushInterval:  100 * time.Millisecond,
+		FlushThreshold: 1,
+		BufferMax:      10000,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bat.Start(ctx)
+
+	ing, err := New(natsURL, bat)
+	if err != nil {
+		t.Fatalf("failed to create ingester: %v", err)
+	}
+	defer ing.Close()
+
+	if err := ing.Start(); err != nil {
+		t.Fatalf("failed to start ingester: %v", err)
+	}
+
+	nc, err := nats.Connect(natsURL)
+	if err != nil {
+		t.Fatalf("connect to NATS: %v", err)
+	}
+	defer func() { _ = nc.Drain() }()
+
+	evt, _ := json.Marshal(map[string]any{
+		"event_id":   "gw-integ-1",
+		"trace_id":   "session-whatsapp-kai",
+		"source":     "nats-publisher",
+		"event_type": "session.chunk",
+		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		"metadata": map[string]any{
+			"session_key":   "whatsapp:+447444361435:kai",
+			"chunk_index":   0,
+			"message_count": 5,
+			"flush_reason":  "idle_timeout",
+		},
+	})
+
+	if err := nc.Publish("swarm.gateway.session.chunk", evt); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	nc.Flush()
+
+	time.Sleep(500 * time.Millisecond)
+
+	found := false
+	for _, e := range ms.GetEvents() {
+		if e.EventID == "gw-integ-1" {
+			found = true
+			if e.Source != "nats-publisher" {
+				t.Errorf("expected source nats-publisher, got %s", e.Source)
+			}
+			if e.EventType != "session.chunk" {
+				t.Errorf("expected event_type session.chunk, got %s", e.EventType)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("gateway session chunk event not found in ingested events")
+	}
+}
+
 // Verify that the mock satisfies the interface at compile time.
 var _ store.DataStore = (*testutil.MockStore)(nil)
