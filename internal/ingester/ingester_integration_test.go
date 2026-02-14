@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -108,7 +109,7 @@ func TestIntegration_PublishAnnouncement(t *testing.T) {
 	}
 }
 
-func TestIntegration_IngestGatewaySessionChunk(t *testing.T) {
+func TestIntegration_GatewayHandlerFiredFromNATS(t *testing.T) {
 	natsURL := skipWithoutNATS(t)
 
 	ms := testutil.NewMockStore()
@@ -128,6 +129,22 @@ func TestIntegration_IngestGatewaySessionChunk(t *testing.T) {
 	}
 	defer ing.Close()
 
+	// Wire a gateway handler — gateway messages should go here, NOT the batcher.
+	var mu sync.Mutex
+	var gatewayCalls []struct {
+		subject string
+		data    []byte
+	}
+
+	ing.SetGatewayHandler(func(ctx context.Context, subject string, data []byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		gatewayCalls = append(gatewayCalls, struct {
+			subject string
+			data    []byte
+		}{subject, data})
+	})
+
 	if err := ing.Start(); err != nil {
 		t.Fatalf("failed to start ingester: %v", err)
 	}
@@ -139,17 +156,14 @@ func TestIntegration_IngestGatewaySessionChunk(t *testing.T) {
 	defer func() { _ = nc.Drain() }()
 
 	evt, _ := json.Marshal(map[string]any{
-		"event_id":   "gw-integ-1",
-		"trace_id":   "session-whatsapp-kai",
-		"source":     "nats-publisher",
-		"event_type": "session.chunk",
-		"timestamp":  time.Now().UTC().Format(time.RFC3339),
-		"metadata": map[string]any{
-			"session_key":   "whatsapp:+447444361435:kai",
-			"chunk_index":   0,
-			"message_count": 5,
-			"flush_reason":  "idle_timeout",
-		},
+		"session_key":      "whatsapp:+447444361435:kai",
+		"chunk_id":         "gw-integ-1",
+		"chunk_index":      0,
+		"is_final":         false,
+		"messages":         []map[string]string{{"role": "user", "content": "hello"}},
+		"message_count":    1,
+		"session_metadata": map[string]any{"channel": "whatsapp", "agent_id": "kai"},
+		"flush_reason":     "idle_timeout",
 	})
 
 	if err := nc.Publish("swarm.gateway.session.chunk", evt); err != nil {
@@ -157,23 +171,37 @@ func TestIntegration_IngestGatewaySessionChunk(t *testing.T) {
 	}
 	nc.Flush()
 
-	time.Sleep(500 * time.Millisecond)
-
-	found := false
-	for _, e := range ms.GetEvents() {
-		if e.EventID == "gw-integ-1" {
-			found = true
-			if e.Source != "nats-publisher" {
-				t.Errorf("expected source nats-publisher, got %s", e.Source)
-			}
-			if e.EventType != "session.chunk" {
-				t.Errorf("expected event_type session.chunk, got %s", e.EventType)
-			}
+	// Poll for the gateway handler to be called.
+	deadline := time.After(5 * time.Second)
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		mu.Lock()
+		n := len(gatewayCalls)
+		mu.Unlock()
+		if n >= 1 {
 			break
 		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for gateway handler call")
+		case <-tick.C:
+		}
 	}
-	if !found {
-		t.Error("gateway session chunk event not found in ingested events")
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(gatewayCalls) != 1 {
+		t.Fatalf("expected 1 gateway handler call, got %d", len(gatewayCalls))
+	}
+	if gatewayCalls[0].subject != "swarm.gateway.session.chunk" {
+		t.Errorf("expected subject swarm.gateway.session.chunk, got %s", gatewayCalls[0].subject)
+	}
+
+	// Verify it did NOT go through the batcher.
+	if ms.GetEventCount() != 0 {
+		t.Errorf("gateway message should bypass batcher, but %d events found in store", ms.GetEventCount())
 	}
 }
 

@@ -177,7 +177,7 @@ func TestStreamSubjects_AllExpectedStreams(t *testing.T) {
 	}
 }
 
-func TestHandleMessage_GatewaySessionChunk(t *testing.T) {
+func TestHandleMessage_GatewaySessionChunk_NoHandler(t *testing.T) {
 	ms := testutil.NewMockStore()
 	bat := batcher.New(ms, &noopProc{}, &noopProc{}, batcher.Config{
 		FlushInterval:  1 * time.Hour,
@@ -186,6 +186,7 @@ func TestHandleMessage_GatewaySessionChunk(t *testing.T) {
 	})
 
 	ing := &Ingester{batcher: bat}
+	// No gateway handler set — falls through to Normalize/batcher.
 
 	payload, _ := json.Marshal(map[string]any{
 		"event_id":   "gw-chunk-1",
@@ -207,6 +208,154 @@ func TestHandleMessage_GatewaySessionChunk(t *testing.T) {
 	if !msg.acked {
 		t.Error("gateway session chunk message should be acked")
 	}
+}
+
+func TestSetGatewayHandler_CalledForGatewaySubject(t *testing.T) {
+	ms := testutil.NewMockStore()
+	bat := batcher.New(ms, &noopProc{}, &noopProc{}, batcher.Config{
+		FlushInterval:  1 * time.Hour,
+		FlushThreshold: 1000,
+		BufferMax:      10000,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ing := &Ingester{batcher: bat, ctx: ctx}
+
+	var mu sync.Mutex
+	var captured []string
+
+	ing.SetGatewayHandler(func(ctx context.Context, subject string, data []byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		captured = append(captured, subject)
+	})
+
+	payload, _ := json.Marshal(map[string]any{
+		"session_key":  "whatsapp:+447444361435:kai",
+		"chunk_id":     "chunk-001",
+		"chunk_index":  0,
+		"is_final":     false,
+		"messages":     []map[string]string{{"role": "user", "content": "hello"}},
+		"message_count": 1,
+	})
+
+	msg := &fakeMsg{subject: "swarm.gateway.session.chunk", data: payload}
+	ing.handleMessage(msg)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(captured) != 1 {
+		t.Fatalf("expected 1 gateway handler call, got %d", len(captured))
+	}
+	if captured[0] != "swarm.gateway.session.chunk" {
+		t.Errorf("expected subject swarm.gateway.session.chunk, got %s", captured[0])
+	}
+	if !msg.acked {
+		t.Error("message should be acked after gateway handler")
+	}
+}
+
+func TestSetGatewayHandler_BypassesBatcher(t *testing.T) {
+	ms := testutil.NewMockStore()
+	bat := batcher.New(ms, &noopProc{}, &noopProc{}, batcher.Config{
+		FlushInterval:  50 * time.Millisecond,
+		FlushThreshold: 1,
+		BufferMax:      10000,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bat.Start(ctx)
+
+	ing := &Ingester{batcher: bat, ctx: ctx}
+
+	handlerCalled := false
+	ing.SetGatewayHandler(func(ctx context.Context, subject string, data []byte) {
+		handlerCalled = true
+	})
+
+	payload, _ := json.Marshal(map[string]any{
+		"session_key":  "whatsapp:+447444361435:kai",
+		"chunk_id":     "chunk-001",
+		"chunk_index":  0,
+		"is_final":     false,
+		"messages":     []map[string]string{{"role": "user", "content": "hello"}},
+		"message_count": 1,
+	})
+
+	msg := &fakeMsg{subject: "swarm.gateway.session.chunk", data: payload}
+	ing.handleMessage(msg)
+
+	// Wait for any potential batcher flush.
+	time.Sleep(100 * time.Millisecond)
+
+	if !handlerCalled {
+		t.Error("gateway handler should have been called")
+	}
+	if ms.GetEventCount() != 0 {
+		t.Errorf("gateway message should NOT enter batcher, but %d events found", ms.GetEventCount())
+	}
+}
+
+func TestSetGatewayHandler_NotCalledForNonGatewaySubject(t *testing.T) {
+	ms := testutil.NewMockStore()
+	bat := batcher.New(ms, &noopProc{}, &noopProc{}, batcher.Config{
+		FlushInterval:  1 * time.Hour,
+		FlushThreshold: 1000,
+		BufferMax:      10000,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ing := &Ingester{batcher: bat, ctx: ctx}
+
+	called := false
+	ing.SetGatewayHandler(func(ctx context.Context, subject string, data []byte) {
+		called = true
+	})
+
+	payload, _ := json.Marshal(map[string]any{
+		"event_id":   "e-1",
+		"trace_id":   "task-1",
+		"source":     "dispatch",
+		"event_type": "task.created",
+		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		"metadata":   map[string]any{},
+	})
+
+	msg := &fakeMsg{subject: "swarm.task.created", data: payload}
+	ing.handleMessage(msg)
+
+	if called {
+		t.Error("gateway handler should not be called for non-gateway subjects")
+	}
+}
+
+func TestHandleMessage_NilGatewayHandler_NoPanic(t *testing.T) {
+	ms := testutil.NewMockStore()
+	bat := batcher.New(ms, &noopProc{}, &noopProc{}, batcher.Config{
+		FlushInterval:  1 * time.Hour,
+		FlushThreshold: 1000,
+		BufferMax:      10000,
+	})
+
+	ing := &Ingester{batcher: bat}
+	// No gateway handler set — should not panic, falls through to Normalize.
+
+	payload, _ := json.Marshal(map[string]any{
+		"event_id":   "gw-no-handler-1",
+		"trace_id":   "session-1",
+		"source":     "nats-publisher",
+		"event_type": "session.chunk",
+		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		"metadata":   map[string]any{},
+	})
+
+	msg := &fakeMsg{subject: "swarm.gateway.session.chunk", data: payload}
+	ing.handleMessage(msg) // Should not panic.
 }
 
 // fakeMsg implements jetstream.Msg for unit testing without a real NATS connection.
