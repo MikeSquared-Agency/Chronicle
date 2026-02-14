@@ -17,14 +17,18 @@ import (
 // DLQHandlerFunc is called for every message on dlq.> subjects.
 type DLQHandlerFunc func(ctx context.Context, subject string, data []byte)
 
+// GatewayHandlerFunc is called for every message on swarm.gateway.> subjects.
+type GatewayHandlerFunc func(ctx context.Context, subject string, data []byte)
+
 type Ingester struct {
-	nc         *nats.Conn
-	js         jetstream.JetStream
-	batcher    *batcher.Batcher
-	subs       []jetstream.ConsumeContext
-	dlqHandler DLQHandlerFunc
-	ctx        context.Context
-	cancel     context.CancelFunc
+	nc             *nats.Conn
+	js             jetstream.JetStream
+	batcher        *batcher.Batcher
+	subs           []jetstream.ConsumeContext
+	dlqHandler     DLQHandlerFunc
+	gatewayHandler GatewayHandlerFunc
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 // streamSubjects maps JetStream stream names to the subjects Chronicle subscribes to.
@@ -155,6 +159,13 @@ func (ing *Ingester) subscribe(ctx context.Context, stream, consumerName string)
 }
 
 func (ing *Ingester) handleMessage(msg jetstream.Msg) {
+	// Gateway messages bypass the batcher — route to dedicated transcript assembler.
+	if strings.HasPrefix(msg.Subject(), "swarm.gateway.") && ing.gatewayHandler != nil {
+		ing.gatewayHandler(ing.ctx, msg.Subject(), msg.Data())
+		_ = msg.Ack()
+		return
+	}
+
 	e, err := events.Normalize(msg.Data())
 	if err != nil {
 		slog.Warn("malformed event, skipping",
@@ -189,6 +200,11 @@ func (ing *Ingester) handleMessage(msg jetstream.Msg) {
 // SetDLQHandler registers a callback for DLQ messages.
 func (ing *Ingester) SetDLQHandler(fn DLQHandlerFunc) {
 	ing.dlqHandler = fn
+}
+
+// SetGatewayHandler registers a callback for gateway session chunk messages.
+func (ing *Ingester) SetGatewayHandler(fn GatewayHandlerFunc) {
+	ing.gatewayHandler = fn
 }
 
 // NATSConn returns the underlying NATS connection (for sharing with DLQ components).

@@ -9,7 +9,8 @@ import (
 func TestLoad_Defaults(t *testing.T) {
 	// Clear any env vars that might interfere.
 	for _, k := range []string{"CHRONICLE_PORT", "NATS_URL", "DATABASE_URL", "ALEXANDRIA_URL",
-		"BATCH_FLUSH_INTERVAL_MS", "BATCH_FLUSH_THRESHOLD", "BUFFER_MAX_SIZE", "LOG_LEVEL"} {
+		"BATCH_FLUSH_INTERVAL_MS", "BATCH_FLUSH_THRESHOLD", "BUFFER_MAX_SIZE", "LOG_LEVEL",
+		"DEFAULT_OWNER_UUID"} {
 		os.Unsetenv(k)
 	}
 
@@ -39,6 +40,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Errorf("expected log level info, got %s", cfg.LogLevel)
 	}
+	if cfg.DefaultOwnerUUID != "" {
+		t.Errorf("expected empty default owner uuid, got %s", cfg.DefaultOwnerUUID)
+	}
 }
 
 func TestLoad_CustomValues(t *testing.T) {
@@ -49,9 +53,11 @@ func TestLoad_CustomValues(t *testing.T) {
 	os.Setenv("BATCH_FLUSH_THRESHOLD", "50")
 	os.Setenv("BUFFER_MAX_SIZE", "5000")
 	os.Setenv("LOG_LEVEL", "debug")
+	os.Setenv("DEFAULT_OWNER_UUID", "e621e1f8-c36c-495a-93fc-0c247a3e6e5f")
 	defer func() {
 		for _, k := range []string{"CHRONICLE_PORT", "NATS_URL", "DATABASE_URL",
-			"BATCH_FLUSH_INTERVAL_MS", "BATCH_FLUSH_THRESHOLD", "BUFFER_MAX_SIZE", "LOG_LEVEL"} {
+			"BATCH_FLUSH_INTERVAL_MS", "BATCH_FLUSH_THRESHOLD", "BUFFER_MAX_SIZE", "LOG_LEVEL",
+			"DEFAULT_OWNER_UUID"} {
 			os.Unsetenv(k)
 		}
 	}()
@@ -78,6 +84,9 @@ func TestLoad_CustomValues(t *testing.T) {
 	}
 	if cfg.LogLevel != "debug" {
 		t.Errorf("expected log level debug, got %s", cfg.LogLevel)
+	}
+	if cfg.DefaultOwnerUUID != "e621e1f8-c36c-495a-93fc-0c247a3e6e5f" {
+		t.Errorf("expected custom owner uuid, got %s", cfg.DefaultOwnerUUID)
 	}
 }
 
