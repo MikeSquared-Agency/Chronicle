@@ -158,6 +158,57 @@ func TestDLQHandler_ReceivesRawData(t *testing.T) {
 	}
 }
 
+func TestStreamSubjects_ContainsGatewayEvents(t *testing.T) {
+	subjects, ok := streamSubjects["GATEWAY_EVENTS"]
+	if !ok {
+		t.Fatal("GATEWAY_EVENTS missing from streamSubjects map")
+	}
+	if len(subjects) != 1 || subjects[0] != "swarm.gateway.>" {
+		t.Errorf("expected [swarm.gateway.>], got %v", subjects)
+	}
+}
+
+func TestStreamSubjects_AllExpectedStreams(t *testing.T) {
+	expected := []string{"TASK_EVENTS", "SYSTEM_EVENTS", "DLQ", "SLACK_EVENTS", "GATEWAY_EVENTS"}
+	for _, name := range expected {
+		if _, ok := streamSubjects[name]; !ok {
+			t.Errorf("stream %s missing from streamSubjects", name)
+		}
+	}
+}
+
+func TestHandleMessage_GatewaySessionChunk(t *testing.T) {
+	ms := testutil.NewMockStore()
+	bat := batcher.New(ms, &noopProc{}, &noopProc{}, batcher.Config{
+		FlushInterval:  1 * time.Hour,
+		FlushThreshold: 1000,
+		BufferMax:      10000,
+	})
+
+	ing := &Ingester{batcher: bat}
+
+	payload, _ := json.Marshal(map[string]any{
+		"event_id":   "gw-chunk-1",
+		"trace_id":   "session-whatsapp-kai",
+		"source":     "nats-publisher",
+		"event_type": "session.chunk",
+		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		"metadata": map[string]any{
+			"session_key":   "whatsapp:+447444361435:kai",
+			"chunk_index":   0,
+			"message_count": 3,
+			"flush_reason":  "buffer_full",
+		},
+	})
+
+	msg := &fakeMsg{subject: "swarm.gateway.session.chunk", data: payload}
+	ing.handleMessage(msg)
+
+	if !msg.acked {
+		t.Error("gateway session chunk message should be acked")
+	}
+}
+
 // fakeMsg implements jetstream.Msg for unit testing without a real NATS connection.
 type fakeMsg struct {
 	subject string

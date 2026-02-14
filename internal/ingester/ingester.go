@@ -29,10 +29,11 @@ type Ingester struct {
 
 // streamSubjects maps JetStream stream names to the subjects Chronicle subscribes to.
 var streamSubjects = map[string][]string{
-	"TASK_EVENTS":   {"swarm.task.>"},
-	"SYSTEM_EVENTS": {"swarm.agent.>", "swarm.system.>", "swarm.lifecycle.>"},
-	"DLQ":           {"dlq.>"},
-	"SLACK_EVENTS":  {"swarm.slack.>"},
+	"TASK_EVENTS":    {"swarm.task.>"},
+	"SYSTEM_EVENTS":  {"swarm.agent.>", "swarm.system.>", "swarm.lifecycle.>"},
+	"DLQ":            {"dlq.>"},
+	"SLACK_EVENTS":   {"swarm.slack.>"},
+	"GATEWAY_EVENTS": {"swarm.gateway.>"},
 }
 
 // streamMaxAge overrides the default 7-day retention per stream.
