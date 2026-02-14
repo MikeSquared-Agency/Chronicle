@@ -18,6 +18,7 @@ type Config struct {
 	DLQScanInterval     time.Duration
 	SlackBotToken       string
 	SlackAlertChannel   string
+	DefaultOwnerUUID    string
 }
 
 func Load() Config {
@@ -33,6 +34,7 @@ func Load() Config {
 		DLQScanInterval:     time.Duration(envInt("DLQ_SCAN_INTERVAL_MS", 300000)) * time.Millisecond,
 		SlackBotToken:       envStr("SLACK_BOT_TOKEN", ""),
 		SlackAlertChannel:   envStr("SLACK_ALERT_CHANNEL", ""),
+		DefaultOwnerUUID:    envStr("DEFAULT_OWNER_UUID", ""),
 	}
 }
 

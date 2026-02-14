@@ -17,6 +17,7 @@ import (
 	slackalert "github.com/MikeSquared-Agency/chronicle/internal/slack"
 	"github.com/MikeSquared-Agency/chronicle/internal/store"
 	"github.com/MikeSquared-Agency/chronicle/internal/traces"
+	"github.com/MikeSquared-Agency/chronicle/internal/transcript"
 
 	dlq "github.com/MikeSquared-Agency/swarm-dlq"
 )
@@ -69,6 +70,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer ing.Close()
+
+	// Step 4b: Transcript assembler — intercepts gateway chunks, assembles transcripts,
+	// and publishes swarm.chronicle.transcript.stored for Dredd.
+	transcriptStore := transcript.NewStoreAdapter(db)
+	transcriptAssembler := transcript.NewAssembler(transcriptStore, ing.Publish, cfg.DefaultOwnerUUID)
+	ing.SetGatewayHandler(transcriptAssembler.HandleChunk)
+	slog.Info("transcript assembler wired")
 
 	// Step 5: Initialize DLQ components (store, processor, handler, scanner).
 	dlqStore := dlq.NewStore(db.Pool())

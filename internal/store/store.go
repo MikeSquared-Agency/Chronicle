@@ -412,6 +412,87 @@ func (s *Store) GetAllAgentMetricsSummary(ctx context.Context) ([]map[string]any
 	return results, rows.Err()
 }
 
+// ChunkRow represents a row from swarm_transcript_chunks.
+type ChunkRow struct {
+	ChunkID         string
+	SessionKey      string
+	ChunkIndex      int
+	IsFinal         bool
+	Messages        json.RawMessage
+	MessageCount    int
+	SessionMetadata json.RawMessage
+	FlushReason     string
+	FlushedAt       *time.Time
+	CreatedAt       time.Time
+}
+
+// InsertChunk upserts a gateway session chunk into swarm_transcript_chunks.
+func (s *Store) InsertChunk(ctx context.Context, chunkID, sessionKey string, chunkIndex int, isFinal bool, messages json.RawMessage, messageCount int, sessionMetadata json.RawMessage, flushReason string, flushedAt *time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO swarm_transcript_chunks
+			(chunk_id, session_key, chunk_index, is_final, messages, message_count, session_metadata, flush_reason, flushed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (session_key, chunk_index) DO UPDATE SET
+			is_final = EXCLUDED.is_final,
+			messages = EXCLUDED.messages,
+			message_count = EXCLUDED.message_count,
+			session_metadata = EXCLUDED.session_metadata,
+			flush_reason = EXCLUDED.flush_reason,
+			flushed_at = EXCLUDED.flushed_at
+	`, chunkID, sessionKey, chunkIndex, isFinal, messages, messageCount, sessionMetadata, flushReason, flushedAt)
+	if err != nil {
+		return fmt.Errorf("insert chunk: %w", err)
+	}
+	return nil
+}
+
+// GetChunksForSession returns all chunks for a session ordered by chunk_index.
+func (s *Store) GetChunksForSession(ctx context.Context, sessionKey string) ([]ChunkRow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT chunk_id, session_key, chunk_index, is_final, messages, message_count,
+		       session_metadata, flush_reason, flushed_at, created_at
+		FROM swarm_transcript_chunks
+		WHERE session_key = $1
+		ORDER BY chunk_index
+	`, sessionKey)
+	if err != nil {
+		return nil, fmt.Errorf("get chunks: %w", err)
+	}
+	defer rows.Close()
+
+	var chunks []ChunkRow
+	for rows.Next() {
+		var c ChunkRow
+		if err := rows.Scan(&c.ChunkID, &c.SessionKey, &c.ChunkIndex, &c.IsFinal, &c.Messages, &c.MessageCount, &c.SessionMetadata, &c.FlushReason, &c.FlushedAt, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan chunk: %w", err)
+		}
+		chunks = append(chunks, c)
+	}
+	return chunks, rows.Err()
+}
+
+// InsertTranscript stores an assembled transcript. ON CONFLICT DO NOTHING for idempotency.
+func (s *Store) InsertTranscript(ctx context.Context, sessionID, sessionKey, sessionRef string, ownerUUID *string, title, surface, transcript string, messageCount, chunkCount int, duration string, firstMessageAt, lastMessageAt *time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO swarm_transcripts
+			(session_id, session_key, session_ref, owner_uuid, title, surface, transcript,
+			 message_count, chunk_count, duration, first_message_at, last_message_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (session_key) DO NOTHING
+	`, sessionID, sessionKey, sessionRef, ownerUUID, title, surface, transcript, messageCount, chunkCount, duration, firstMessageAt, lastMessageAt)
+	if err != nil {
+		return fmt.Errorf("insert transcript: %w", err)
+	}
+	return nil
+}
+
+// TranscriptExists checks if a transcript has already been assembled for a session.
+func (s *Store) TranscriptExists(ctx context.Context, sessionKey string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM swarm_transcripts WHERE session_key = $1)`, sessionKey).Scan(&exists)
+	return exists, err
+}
+
 // GetTraceAssignedAt retrieves when a trace was assigned (for time-to-pickup calculation).
 func (s *Store) GetTraceAssignedAt(ctx context.Context, traceID string) (*time.Time, error) {
 	row := s.pool.QueryRow(ctx,
