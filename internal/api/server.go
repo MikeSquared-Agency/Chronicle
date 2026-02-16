@@ -32,6 +32,15 @@ func NewServer(s store.DataStore, b *batcher.Batcher, port int, dlqRoutes chi.Ro
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
 
+	// Root-level health and info
+	r.Get("/health", srv.handleHealth)
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"service": "chronicle",
+			"version": "0.1.0",
+		})
+	})
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", srv.handleHealth)
 		r.Get("/events", srv.handleGetEvents)
