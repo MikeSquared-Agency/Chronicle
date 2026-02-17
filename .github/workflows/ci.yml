@@ -77,3 +77,81 @@ jobs:
         env:
           CHRONICLE_PORT: "8700"
           NATS_URL: nats://localhost:4222
+
+      # Report CI result to Dispatch for gate automation
+      - name: Report to Dispatch
+        if: always()
+        env:
+          CI_STATUS: ${{ job.status }}
+          DISPATCH_URL: ${{ secrets.DISPATCH_URL }}
+          DISPATCH_TOKEN: ${{ secrets.DISPATCH_ADMIN_TOKEN }}
+          OPENCLAW_WEBHOOK_URL: ${{ secrets.OPENCLAW_WEBHOOK_URL }}
+          OPENCLAW_WEBHOOK_TOKEN: ${{ secrets.OPENCLAW_WEBHOOK_TOKEN }}
+        run: |
+          # Extract item ID from branch name (format: feat/ITEMID-description or fix/ITEMID-description)
+          BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          ITEM_ID=$(echo "$BRANCH" | grep -oP '(?<=/)[a-f0-9]{8}' | head -1)
+          
+          if [ -z "$ITEM_ID" ] || [ -z "$DISPATCH_URL" ]; then
+            echo "No item ID in branch name or no Dispatch URL configured, skipping"
+            exit 0
+          fi
+          
+          # Find full UUID from short ID
+          FULL_ID=$(curl -sf "${DISPATCH_URL}/api/v1/backlog" \
+            -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            -H "X-Agent-ID: github-ci" | \
+            python3 -c "import sys,json; items=json.load(sys.stdin); matches=[i['id'] for i in items if i['id'].startswith('${ITEM_ID}')]; print(matches[0] if matches else '')" 2>/dev/null)
+          
+          if [ -z "$FULL_ID" ]; then
+            echo "Could not find backlog item matching ${ITEM_ID}"
+            exit 0
+          fi
+          
+          echo "Found item: ${FULL_ID}"
+          
+          # Store PR URL on the item
+          if [ -n "$GITHUB_EVENT_PATH" ]; then
+            PR_URL=$(python3 -c "import json; e=json.load(open('$GITHUB_EVENT_PATH','')); print(e.get('pull_request',{}).get('html_url',''))" 2>/dev/null)
+            if [ -n "$PR_URL" ]; then
+              curl -sf -X PATCH "${DISPATCH_URL}/api/v1/backlog/${FULL_ID}" \
+                -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+                -H "X-Agent-ID: github-ci" \
+                -H "Content-Type: application/json" \
+                -d "{\"pr_url\": \"${PR_URL}\", \"branch_name\": \"${BRANCH}\"}"
+            fi
+          fi
+          
+          if [ "$CI_STATUS" = "success" ]; then
+            # Submit passing evidence
+            curl -sf -X POST "${DISPATCH_URL}/api/v1/backlog/${FULL_ID}/gate/evidence" \
+              -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+              -H "X-Agent-ID: github-ci" \
+              -H "Content-Type: application/json" \
+              -d "{\"stage\":\"verify\",\"criterion\":\"tests passing\",\"submitted_by\":\"github-ci\",\"evidence\":\"✅ CI green — build, test, vet, lint all passed on ${BRANCH}\"}"
+            
+            curl -sf -X POST "${DISPATCH_URL}/api/v1/backlog/${FULL_ID}/gate/evidence" \
+              -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+              -H "X-Agent-ID: github-ci" \
+              -H "Content-Type: application/json" \
+              -d "{\"stage\":\"verify\",\"criterion\":\"linting clean\",\"submitted_by\":\"github-ci\",\"evidence\":\"✅ golangci-lint and go vet passed\"}"
+            
+            echo "✅ Submitted passing evidence to Dispatch"
+          else
+            # Submit failure + wake orchestrator
+            curl -sf -X POST "${DISPATCH_URL}/api/v1/backlog/${FULL_ID}/gate/evidence" \
+              -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+              -H "X-Agent-ID: github-ci" \
+              -H "Content-Type: application/json" \
+              -d "{\"stage\":\"verify\",\"criterion\":\"tests passing\",\"submitted_by\":\"github-ci\",\"evidence\":\"❌ CI failed: ${CI_STATUS} on ${BRANCH}\"}"
+            
+            # Wake orchestrator
+            if [ -n "$OPENCLAW_WEBHOOK_URL" ]; then
+              curl -sf -X POST "${OPENCLAW_WEBHOOK_URL}/hooks/wake" \
+                -H "Authorization: Bearer ${OPENCLAW_WEBHOOK_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d "{\"text\":\"CI failed for item ${ITEM_ID} on branch ${BRANCH}\",\"mode\":\"now\"}"
+            fi
+            
+            echo "❌ Submitted failure evidence to Dispatch"
+          fi
